@@ -1,0 +1,302 @@
+package zmx
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestExistingSessionCommandsDoNotApplyPrefixAgain(t *testing.T) {
+	t.Setenv("ZMX_SESSION_PREFIX", "d.")
+	orig := deps
+	t.Cleanup(func() { deps = orig })
+	deps.command = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("sh", "-c", `test "${ZMX_SESSION_PREFIX}$1" = d.term`, "sh", args[1])
+	}
+	if err := KillSession("d.term"); err != nil {
+		t.Errorf("kill targeted the wrong session: %v", err)
+	}
+	deps.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if args[0] == "help" {
+			return exec.CommandContext(ctx, "echo", "--screen")
+		}
+		return exec.CommandContext(ctx, "sh", "-c", `printf '%s' "${ZMX_SESSION_PREFIX}$1"`, "sh", args[1])
+	}
+	if got := FetchPreview("d.term", 1).Content; got != "d.term" {
+		t.Errorf("history targeted %q, want d.term", got)
+	}
+}
+
+func TestAttachCommandTargetsExactShellQuotedSession(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "zmx"), []byte("#!/bin/sh\nprintf '%s' \"${ZMX_SESSION_PREFIX}$2\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("ZMX_SESSION_PREFIX", "d.")
+	for _, name := range []string{"d.term", "other term", "quote'$(echo bad);name"} {
+		out, err := exec.Command("sh", "-c", AttachCommand(name)).CombinedOutput()
+		if err != nil || string(out) != name {
+			t.Errorf("copy command for %q: output=%q err=%v", name, out, err)
+		}
+	}
+}
+
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		input uint64
+		want  string
+	}{
+		{0, "0B"},
+		{512, "512B"},
+		{1023, "1023B"},
+		{1024, "1K"},
+		{50 * 1024, "50K"},
+		{1 << 20, "1M"},
+		{5 * (1 << 20), "5M"},
+		{142 * (1 << 20), "142M"},
+		{1 << 30, "1.0G"},
+		{2 * (1 << 30), "2.0G"},
+		{10 * (1 << 30), "10G"},
+		{15 * (1 << 30), "15G"},
+	}
+	for _, tt := range tests {
+		got := FormatBytes(tt.input)
+		if got != tt.want {
+			t.Errorf("FormatBytes(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestSumTreeRSS(t *testing.T) {
+	// Tree:  1 → 2 → 4
+	//          → 3
+	rss := map[int]uint64{
+		1: 100,
+		2: 200,
+		3: 300,
+		4: 400,
+	}
+	children := map[int][]int{
+		1: {2, 3},
+		2: {4},
+	}
+
+	tests := []struct {
+		pid  int
+		want uint64
+	}{
+		{1, 1000}, // 100 + 200 + 300 + 400
+		{2, 600},  // 200 + 400
+		{3, 300},  // leaf
+		{4, 400},  // leaf
+		{99, 0},   // missing pid
+	}
+	for _, tt := range tests {
+		got := sumTreeRSS(tt.pid, rss, children)
+		if got != tt.want {
+			t.Errorf("sumTreeRSS(%d) = %d, want %d", tt.pid, got, tt.want)
+		}
+	}
+}
+
+func TestSumTreeRSS_DisjointTrees(t *testing.T) {
+	// Two separate trees: 10→11, 20→21→22
+	rss := map[int]uint64{
+		10: 50,
+		11: 60,
+		20: 70,
+		21: 80,
+		22: 90,
+	}
+	children := map[int][]int{
+		10: {11},
+		20: {21},
+		21: {22},
+	}
+
+	if got := sumTreeRSS(10, rss, children); got != 110 {
+		t.Errorf("tree rooted at 10 = %d, want 110", got)
+	}
+	if got := sumTreeRSS(20, rss, children); got != 240 {
+		t.Errorf("tree rooted at 20 = %d, want 240", got)
+	}
+}
+
+func TestParseEtime(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int
+	}{
+		{"00:05", 5},           // 5 seconds
+		{"01:30", 90},          // 1 min 30 sec
+		{"02:15:30", 8130},     // 2h 15m 30s
+		{"1-00:00:00", 86400},  // 1 day
+		{"3-12:30:45", 304245}, // 3d 12h 30m 45s
+		{"00:00", 0},           // zero
+	}
+	for _, tt := range tests {
+		got := parseEtime(tt.input)
+		if got != tt.want {
+			t.Errorf("parseEtime(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestFormatUptime(t *testing.T) {
+	tests := []struct {
+		input int
+		want  string
+	}{
+		{0, "0s"},
+		{30, "30s"},
+		{59, "59s"},
+		{60, "1m"},
+		{3599, "59m"},
+		{3600, "1h"},
+		{7200, "2h"},
+		{86399, "23h"},
+		{86400, "1d"},
+		{259200, "3d"},
+	}
+	for _, tt := range tests {
+		got := FormatUptime(tt.input)
+		if got != tt.want {
+			t.Errorf("FormatUptime(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestTailLinesFromReader(t *testing.T) {
+	input := "one\n\x1b[31mtwo\x1b[0m\nthree\nfour\n"
+	got, err := tailLinesFromReader(strings.NewReader(input), 2)
+	if err != nil {
+		t.Fatalf("tailLinesFromReader error: %v", err)
+	}
+	if got != "three\nfour" {
+		t.Fatalf("tailLinesFromReader = %q, want %q", got, "three\nfour")
+	}
+}
+
+func TestTailLinesFromReader_AtLeastOneLine(t *testing.T) {
+	got, err := tailLinesFromReader(strings.NewReader("solo\n"), 1)
+	if err != nil {
+		t.Fatalf("tailLinesFromReader error: %v", err)
+	}
+	if got != "solo" {
+		t.Fatalf("tailLinesFromReader = %q, want %q", got, "solo")
+	}
+}
+
+func TestFetchSessionsNewFormat(t *testing.T) {
+	orig := deps
+	defer func() { deps = orig }()
+
+	deps.command = func(name string, arg ...string) *exec.Cmd {
+		script := "printf 'name=demo\\tpid=123\\tclients=0\\tcreated=1774179340\\tstart_dir=/Users/example/derp\\n'"
+		return exec.Command("sh", "-c", script)
+	}
+
+	got, err := FetchSessions()
+	if err != nil {
+		t.Fatalf("FetchSessions error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(got))
+	}
+	s := got[0]
+	if s.Name != "demo" {
+		t.Errorf("Name = %q, want %q", s.Name, "demo")
+	}
+	if s.PID != "123" {
+		t.Errorf("PID = %q, want %q", s.PID, "123")
+	}
+	if s.Clients != 0 {
+		t.Errorf("Clients = %d, want 0", s.Clients)
+	}
+	if s.StartedIn != "/Users/example/derp" {
+		t.Errorf("StartedIn = %q, want %q", s.StartedIn, "/Users/example/derp")
+	}
+}
+
+func TestFetchSessionsNewFormatCurrentSession(t *testing.T) {
+	orig := deps
+	defer func() { deps = orig }()
+
+	deps.command = func(name string, arg ...string) *exec.Cmd {
+		script := "printf '→ name=current\\tpid=456\\tclients=1\\tcreated=1774179340\\tstart_dir=/Users/example/current\\n'"
+		return exec.Command("sh", "-c", script)
+	}
+
+	got, err := FetchSessions()
+	if err != nil {
+		t.Fatalf("FetchSessions error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(got))
+	}
+	if got[0].Name != "current" {
+		t.Errorf("Name = %q, want %q", got[0].Name, "current")
+	}
+	if !got[0].IsCurrent() {
+		t.Error("current-session marker was discarded")
+	}
+	if got[0].StartedIn != "/Users/example/current" {
+		t.Errorf("StartedIn = %q, want %q", got[0].StartedIn, "/Users/example/current")
+	}
+}
+
+func TestFetchSessionsOldFormat(t *testing.T) {
+	orig := deps
+	defer func() { deps = orig }()
+
+	deps.command = func(name string, arg ...string) *exec.Cmd {
+		script := "printf 'session_name=demo\\tpid=123\\tclients=2\\tstarted_in=/tmp\\tcmd=vim\\n'"
+		return exec.Command("sh", "-c", script)
+	}
+
+	got, err := FetchSessions()
+	if err != nil {
+		t.Fatalf("FetchSessions error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(got))
+	}
+	s := got[0]
+	if s.Name != "demo" {
+		t.Errorf("Name = %q, want %q", s.Name, "demo")
+	}
+	if s.PID != "123" {
+		t.Errorf("PID = %q, want %q", s.PID, "123")
+	}
+	if s.Clients != 2 {
+		t.Errorf("Clients = %d, want 2", s.Clients)
+	}
+	if s.StartedIn != "/tmp" {
+		t.Errorf("StartedIn = %q, want %q", s.StartedIn, "/tmp")
+	}
+	if s.Cmd != "vim" {
+		t.Errorf("Cmd = %q, want %q", s.Cmd, "vim")
+	}
+}
+
+func TestCopyToClipboardUsesInjectedDeps(t *testing.T) {
+	orig := deps
+	defer func() { deps = orig }()
+
+	var copied string
+	deps.clipboardWrite = func(text string) error {
+		copied = text
+		return nil
+	}
+
+	if err := CopyToClipboard("zmx attach demo"); err != nil {
+		t.Fatalf("CopyToClipboard error: %v", err)
+	}
+	if copied != "zmx attach demo" {
+		t.Fatalf("clipboard text = %q, want %q", copied, "zmx attach demo")
+	}
+}

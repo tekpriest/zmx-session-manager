@@ -1,0 +1,142 @@
+<div align="center">
+
+# zsm
+
+TUI session manager for [zmx](https://github.com/neurosnap/zmx)
+
+[<img src="https://img.shields.io/github/actions/workflow/status/mdsakalu/zmx-session-manager/ci.yaml?label=build&logo=github" />](https://github.com/mdsakalu/zmx-session-manager/actions)
+[<img src="https://img.shields.io/github/v/release/mdsakalu/zmx-session-manager?label=release&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BCiAgPHBhdGggZD0iTTIgNyBMNyAyIEgxNCBWOSBMOSAxNCBaIi8%2BCiAgPGNpcmNsZSBjeD0iMTEiIGN5PSI1IiByPSIxIi8%2BCjwvc3ZnPg%3D%3D" />](https://github.com/mdsakalu/zmx-session-manager/releases/latest)
+[<img src="https://img.shields.io/github/downloads/mdsakalu/zmx-session-manager/total?label=downloads&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BCiAgPHBhdGggZD0iTTggMiBWMTAiLz4KICA8cGF0aCBkPSJNNSA3IEw4IDEwIEwxMSA3Ii8%2BCiAgPHBhdGggZD0iTTMgMTMgSDEzIi8%2BCjwvc3ZnPg%3D%3D" />](https://github.com/mdsakalu/zmx-session-manager/releases)
+[<img src="https://img.shields.io/badge/Homebrew-mdsakalu/tap/zsm-orange?logo=homebrew" />](https://github.com/mdsakalu/homebrew-tap)
+[<img src="https://img.shields.io/github/go-mod/go-version/mdsakalu/zmx-session-manager?logo=go&logoColor=white" />](https://go.dev)
+[<img src="https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple" />](https://github.com/mdsakalu/zmx-session-manager)
+[<img src="https://img.shields.io/badge/platform-Linux-lightgrey?logo=linux&logoColor=white" />](https://github.com/mdsakalu/zmx-session-manager)
+[<img src="https://img.shields.io/github/license/mdsakalu/zmx-session-manager?logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNCAxNiI%2BPHBhdGggZmlsbD0id2hpdGUiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTTcgNGMtLjgzIDAtMS41LS42Ny0xLjUtMS41UzYuMTcgMSA3IDFzMS41LjY3IDEuNSAxLjVTNy44MyA0IDcgNHptNyA2YzAgMS4xMS0uODkgMi0yIDJoLTFjLTEuMTEgMC0yLS44OS0yLTJsMi00aC0xYy0uNTUgMC0xLS40NS0xLTFIOHY4Yy40MiAwIDEgLjQ1IDEgMWgxYy40MiAwIDEgLjQ1IDEgMUgzYzAtLjU1LjU4LTEgMS0xaDFjMC0uNTUuNTgtMSAxLTFoLjAzTDYgNUg1YzAgLjU1LS40NSAxLTEgMUgzbDIgNGMwIDEuMTEtLjg5IDItMiAySDJjLTEuMTEgMC0yLS44OS0yLTJsMi00SDFWNWgzYzAtLjU1LjQ1LTEgMS0xaDRjLjU1IDAgMSAuNDUgMSAxaDN2MWgtMWwyIDR6TTIuNSA3TDEgMTBoM0wyLjUgN3pNMTMgMTBsLTEuNS0zLTEuNSAzaDN6Ii8%2BPC9zdmc%2B" />](LICENSE)
+[<img src="https://img.shields.io/badge/Built_With-Bubble_Tea-blue" />](https://github.com/charmbracelet/bubbletea)
+
+<img src="assets/screenshot.png" alt="zsm screenshot" width="600" />
+
+</div>
+
+## Install
+
+### Homebrew
+
+```
+brew install mdsakalu/tap/zsm
+```
+
+### Go
+
+```
+go install github.com/mdsakalu/zmx-session-manager@latest
+```
+
+### Nix
+
+Run directly from the flake:
+
+```
+nix run github:mdsakalu/zmx-session-manager
+```
+
+Or install it into your profile:
+
+```
+nix profile install github:mdsakalu/zmx-session-manager
+```
+
+Open a development shell with the Go toolchain and project linters:
+
+```
+nix develop github:mdsakalu/zmx-session-manager
+```
+
+## Requirements
+
+[zmx](https://github.com/neurosnap/zmx) must be installed and available in your `PATH`. [zoxide](https://github.com/ajeetdsouza/zoxide) is optional and enables the directory picker (`z`). Current-screen previews use zmx 1.0.1 or newer. Older installations retain scrollback previews, labeled `[scrollback]` in the preview title. zsm retains compatibility with the legacy `session_name`/`started_in` list format.
+
+After upgrading zmx, older session daemons may not support screen capture. zsm
+falls back to scrollback when the daemon reports that limitation. The zmx client
+must still be compatible with the session daemon: for example, zmx 1.0.1 cannot
+retrieve history from a 0.7.1 daemon. Those sessions need a matching older zmx
+client or must be recreated with the new version.
+
+## Settings
+
+To set defaults for new runs, create `~/.config/zsm/config.toml`. If
+`XDG_CONFIG_HOME` is set to an absolute path, zsm reads
+`$XDG_CONFIG_HOME/zsm/config.toml` instead. The file and each key are optional.
+
+```toml
+sort = "name:asc"
+wrap = true
+exit_on_end = false
+```
+
+Sort by `name`, `clients`, `pid`, `memory`, or `uptime`. Append `:desc` for
+descending order, or use `:asc` or omit the direction for ascending order.
+For example, `zsm --sort=memory:desc --wrap=false` shows the largest sessions
+first with unwrapped previews for that run. Changes made with `s` and `w`
+carry over when you detach and return to the picker. A new run reads the file again.
+
+Use `--exit-on-end` to quit after the attached session ends. Detaching,
+a failed attach, or a failed session lookup returns you to the picker.
+Explicit flags take priority, including `--exit-on-end=false`.
+
+Unknown keys and invalid values produce a warning and other valid settings
+still apply. If the file cannot be read or parsed, zsm warns and starts with
+built-in defaults plus any explicit flags. Use `zsm --help` to list the flags.
+
+## Key Bindings
+
+| Key | Action |
+|-----|--------|
+| `↑` `↓` | Navigate sessions |
+| `w` | Toggle preview wrapping (on by default) |
+| `←` `→` | Scroll preview horizontally when wrapping is off |
+| `space` | Toggle selection |
+| `ctrl+a` | Select / deselect all |
+| `enter` | Attach to session, then return to zsm after detaching |
+| `n` | Create and attach to a new session |
+| `z` | Browse zoxide directories and create a session in the selected directory |
+| `e` | Attach by replacing zsm (legacy behavior) |
+| `k` | Kill selected session(s) |
+| `c` | Copy attach command |
+| `s` | Cycle sort mode (name / clients / PID / memory / uptime) |
+| `/` | Filter sessions |
+| `[` `]` | Scroll activity log |
+| `q` | Quit |
+| `esc` | Quit, or clear an active filter |
+
+The zoxide picker reads `zoxide query --list`; it filters the database entries and creates a new zmx session with the selected directory as its working directory. Install and initialize zoxide separately; zsm continues to work without it.
+
+When zsm runs inside a zmx session, selecting that same session exits the manager.
+Its preview is hidden to avoid recursively displaying the manager itself.
+
+After detaching, the picker keeps the session you just left focused and visible.
+If that session has ended, the picker selects the first remaining session.
+
+Existing sessions use their exact names, including any `ZMX_SESSION_PREFIX` already
+present. New sessions created with `n` still receive the configured prefix; the
+default name and duplicate checks account for it. Copied attach commands also
+target the exact existing session, even in a shell with a prefix configured.
+
+The new-session name field supports arrow keys, Home/End (Ctrl+A/E), Delete,
+Backspace, and terminal paste. Ctrl+U or Ctrl/Cmd+Backspace clears the field;
+Ctrl+W or Alt+Backspace deletes the previous word, and Ctrl+K deletes to the end.
+Modified shortcuts depend on the terminal forwarding distinct key sequences;
+Ctrl+U works when the terminal maps modified Backspace to ordinary Backspace.
+The insertion point uses the terminal's default cursor style.
+
+Preview output shows the current screen, excluding cleared scrollback and unused
+trailing blank rows. It wraps to the preview pane's width and shows the most recent rows.
+Press `w` to disable wrapping and use `←` / `→` to inspect long lines horizontally.
+
+## Contributors
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the people who have contributed code, reports, testing, and feedback.
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,438 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/mdsakalu/zmx-session-manager/internal/zmx"
+)
+
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.state == stateConfirmKill {
+		return m.handleConfirmKey(msg)
+	}
+
+	if isQuit(msg) {
+		return m, tea.Quit
+	}
+	if msg.Code == tea.KeyEscape && m.filterText == "" {
+		return m, tea.Quit
+	}
+
+	m.handleLogScroll(msg)
+
+	// Escape or Backspace clears active filter in normal mode
+	if (msg.Code == tea.KeyEscape || msg.Code == tea.KeyBackspace) && m.filterText != "" {
+		m.filterText = ""
+		m.markVisibleChanged()
+		m.cursor = 0
+		m.listOffset = 0
+		return m, m.previewCmd()
+	}
+
+	visible := m.visibleSessions()
+
+	// Ctrl+A toggles select all
+	if msg.Code == 'a' && msg.Mod.Contains(tea.ModCtrl) {
+		m.toggleSelectAll(visible)
+		return m, nil
+	}
+
+	switch msg.Code {
+	case tea.KeyUp:
+		if m.cursor > 0 {
+			m.cursor--
+			m.previewScrollX = 0
+			m.ensureVisible()
+			return m, m.previewCmd()
+		}
+
+	case tea.KeyDown:
+		if m.cursor < len(visible)-1 {
+			m.cursor++
+			m.previewScrollX = 0
+			m.ensureVisible()
+			return m, m.previewCmd()
+		}
+
+	case tea.KeyLeft:
+		if m.previewWrap {
+			return m, nil
+		}
+		if m.previewScrollX > 0 {
+			m.previewScrollX -= 4
+			if m.previewScrollX < 0 {
+				m.previewScrollX = 0
+			}
+		}
+
+	case tea.KeyRight:
+		if m.previewWrap {
+			return m, nil
+		}
+		maxW := previewMaxWidth(m.preview)
+		limit := maxW - m.previewInnerWidth()
+		if limit < 0 {
+			limit = 0
+		}
+		if m.previewScrollX+4 <= limit {
+			m.previewScrollX += 4
+		} else {
+			m.previewScrollX = limit
+		}
+
+	case tea.KeySpace:
+		if m.cursor < len(visible) {
+			name := visible[m.cursor].Name
+			if m.selected[name] {
+				delete(m.selected, name)
+			} else {
+				m.selected[name] = true
+			}
+		}
+
+	case tea.KeyEnter:
+		if m.cursor < len(visible) {
+			if !visible[m.cursor].IsCurrent() {
+				m.attach = AttachRequest{Target: visible[m.cursor].Name, Mode: AttachAndReturn}
+			}
+			return m, tea.Quit
+		}
+
+	default:
+		if msg.Text != "" {
+			switch msg.Text {
+			case "z":
+				m.status = "Loading zoxide directories..."
+				return m, func() tea.Msg { return fetchZoxideDirsCmd() }
+			case "w":
+				m.previewWrap = !m.previewWrap
+				m.previewScrollX = 0
+			case "n":
+				m.state = stateNewSession
+				m.newSessionName = ""
+				m.newSessionCursor = 0
+				m.newSessionDefault = m.availableSessionName(m.sessionNameBase)
+				m.status = ""
+			case "e":
+				if m.cursor < len(visible) {
+					if !visible[m.cursor].IsCurrent() {
+						m.attach = AttachRequest{Target: visible[m.cursor].Name, Mode: AttachReplaceProcess}
+					}
+					return m, tea.Quit
+				}
+			case "k":
+				targets := m.killTargets()
+				if len(targets) > 0 {
+					m.state = stateConfirmKill
+				}
+			case "c":
+				if m.cursor < len(visible) {
+					name := visible[m.cursor].Name
+					text := zmx.AttachCommand(name)
+					if err := zmx.CopyToClipboard(text); err != nil {
+						m.status = fmt.Sprintf("Copy failed: %v", err)
+						m.addLog(confirmStyle.Render(fmt.Sprintf("  ✗ Copy failed: %v", err)))
+					} else {
+						m.status = "Copied!"
+						m.addLog(statusStyle.Render(fmt.Sprintf("  Copied: %s", text)))
+					}
+					return m, clearStatusAfter(2 * time.Second)
+				}
+			case "r":
+				return m, fetchSessionsCmd
+			case "/":
+				m.state = stateFilter
+			case "s":
+				if m.sortAsc {
+					m.sortAsc = false
+				} else {
+					m.sortAsc = true
+					m.sortMode = (m.sortMode + 1) % sortModeCount
+				}
+				m.markVisibleChanged()
+				m.cursor = 0
+				m.listOffset = 0
+				return m, m.previewCmd()
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleNewSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.Code == 'c' && msg.Mod.Contains(tea.ModCtrl) {
+		return m, tea.Quit
+	}
+
+	switch msg.Code {
+	case tea.KeyEscape:
+		m.state = stateNormal
+		m.newSessionName = ""
+		m.status = ""
+
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.newSessionName)
+		if name == "" {
+			name = m.newSessionDefault
+		}
+		if name == "." || name == ".." || strings.ContainsRune(name, '/') {
+			m.status = "Session name cannot be '.', '..', or contain '/'"
+			return m, nil
+		}
+		if m.hasSession(os.Getenv("ZMX_SESSION_PREFIX") + name) {
+			m.status = fmt.Sprintf("Session %q already exists", name)
+			return m, nil
+		}
+		m.attach = AttachRequest{Target: name, Mode: AttachAndReturn, NewSession: true}
+		return m, tea.Quit
+
+	default:
+		m.editSessionName(msg)
+	}
+
+	return m, nil
+}
+
+func (m Model) availableSessionName(base string) string {
+	if base == "" {
+		base = "session"
+	}
+	prefix := os.Getenv("ZMX_SESSION_PREFIX")
+	if !m.hasSession(prefix + base) {
+		return base
+	}
+	for suffix := 2; ; suffix++ {
+		candidate := fmt.Sprintf("%s-%d", base, suffix)
+		if !m.hasSession(prefix + candidate) {
+			return candidate
+		}
+	}
+}
+
+func (m Model) hasSession(name string) bool {
+	for _, session := range m.sessions {
+		if session.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) toggleSelectAll(visible []Session) {
+	if len(visible) == 0 {
+		return
+	}
+	allSelected := true
+	for _, s := range visible {
+		if !m.selected[s.Name] {
+			allSelected = false
+			break
+		}
+	}
+	if allSelected {
+		for _, s := range visible {
+			delete(m.selected, s.Name)
+		}
+	} else {
+		for _, s := range visible {
+			m.selected[s.Name] = true
+		}
+	}
+}
+
+// pruneSelections removes selections for sessions not in the current visible set.
+func (m *Model) pruneSelections() {
+	visible := m.visibleSessions()
+	allowed := make(map[string]bool, len(visible))
+	for _, s := range visible {
+		allowed[s.Name] = true
+	}
+	for name := range m.selected {
+		if !allowed[name] {
+			delete(m.selected, name)
+		}
+	}
+}
+
+func (m Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if isQuit(msg) {
+		return m, tea.Quit
+	}
+
+	switch msg.Code {
+	case tea.KeyEscape:
+		m.filterText = ""
+		m.markVisibleChanged()
+		m.state = stateNormal
+		m.cursor = 0
+		m.listOffset = 0
+		return m, m.previewCmd()
+
+	case tea.KeyEnter:
+		m.state = stateNormal
+		m.clampCursor()
+		return m, m.previewCmd()
+
+	case tea.KeyBackspace:
+		if len(m.filterText) > 0 {
+			m.filterText = m.filterText[:len(m.filterText)-1]
+			m.markVisibleChanged()
+			m.pruneSelections()
+			m.cursor = 0
+			m.listOffset = 0
+		} else {
+			// Backspace on empty filter exits filter mode
+			m.state = stateNormal
+			return m, m.previewCmd()
+		}
+
+	case tea.KeyUp:
+		if m.cursor > 0 {
+			m.cursor--
+			m.ensureVisible()
+			return m, m.previewCmd()
+		}
+
+	case tea.KeyDown:
+		visible := m.visibleSessions()
+		if m.cursor < len(visible)-1 {
+			m.cursor++
+			m.ensureVisible()
+			return m, m.previewCmd()
+		}
+
+	default:
+		if msg.Text != "" {
+			m.filterText += msg.Text
+			m.markVisibleChanged()
+			m.pruneSelections()
+			m.cursor = 0
+			m.listOffset = 0
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if isQuit(msg) {
+		return m, tea.Quit
+	}
+	if msg.Code == tea.KeyEscape || msg.Code == tea.KeyBackspace {
+		m.state = stateNormal
+		return m, nil
+	}
+	if isRune(msg, "y") {
+		targets := m.killTargets()
+		total := len(targets)
+		m.state = stateKilling
+		m.killDoneNames = nil
+
+		m.addLog(titleStyle.Render(fmt.Sprintf("Killing %d session(s)...", total)))
+
+		first := targets[0]
+		m.killQueue = targets[1:]
+		m.killNow = first
+		m.addLog(helpStyle.Render("  ⋯ " + first))
+		return m, killOneCmd(first)
+	}
+	if isRune(msg, "n") {
+		m.state = stateNormal
+	}
+	return m, nil
+}
+
+func (m *Model) handleLogScroll(msg tea.KeyPressMsg) {
+	if !isRune(msg, "[") && !isRune(msg, "]") {
+		return
+	}
+	maxOffset := len(m.logLines) - logContentHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if isRune(msg, "[") && m.logOffset > 0 {
+		m.logOffset--
+	}
+	if isRune(msg, "]") && m.logOffset < maxOffset {
+		m.logOffset++
+	}
+}
+
+func (m *Model) ensureVisible() {
+	h := m.mainContentHeight(strings.Count(m.renderHelp(), "\n") + 1)
+	if h <= 0 {
+		return
+	}
+	if m.cursor < m.listOffset {
+		m.listOffset = m.cursor
+	}
+	if m.cursor >= m.listOffset+h {
+		m.listOffset = m.cursor - h + 1
+	}
+}
+
+func (m Model) handleDirectoryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	visible := m.visibleSessions()
+	if msg.Code == tea.KeyEscape {
+		m.directoryMode = false
+		m.filterText = ""
+		m.status = ""
+		m.markVisibleChanged()
+		m.cursor = 0
+		return m, m.previewCmd()
+	}
+	switch msg.Code {
+	case tea.KeyUp:
+		if m.cursor > 0 {
+			m.cursor--
+			m.ensureVisible()
+		}
+	case tea.KeyDown:
+		if m.cursor < len(visible)-1 {
+			m.cursor++
+			m.ensureVisible()
+		}
+	case tea.KeyEnter:
+		if m.cursor >= len(visible) {
+			return m, nil
+		}
+		dir := visible[m.cursor].StartedIn
+		base := visible[m.cursor].Name
+		if base == "." || base == string(os.PathSeparator) || base == "" {
+			base = "root"
+		}
+		name := m.availableSessionName(base)
+		m.attach = AttachRequest{Target: name, Mode: AttachAndReturn, NewSession: true, WorkingDir: dir}
+		return m, tea.Quit
+	case tea.KeyBackspace:
+		if m.filterText != "" {
+			runes := []rune(m.filterText)
+			m.filterText = string(runes[:len(runes)-1])
+			m.markVisibleChanged()
+			m.cursor = 0
+		}
+	default:
+		if msg.Text == "/" {
+			m.state = stateFilter
+			return m, nil
+		}
+		if msg.Text == "r" {
+			return m, func() tea.Msg { return fetchZoxideDirsCmd() }
+		}
+		if msg.Text == "q" {
+			return m, tea.Quit
+		}
+		if msg.Text != "" {
+			m.filterText += msg.Text
+			m.markVisibleChanged()
+			m.cursor = 0
+			m.listOffset = 0
+		}
+	}
+	return m, nil
+}
